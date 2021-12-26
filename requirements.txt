@@ -2,7 +2,7 @@
 -e .
 
 # external requirements
-click
+pandas
 Sphinx
 coverage
 awscli
