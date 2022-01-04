@@ -10,7 +10,7 @@ from dotenv import load_dotenv, find_dotenv
 from consts.consts import Constants as CONSTS
 from collect.collect import (
     auth, split, create_headers, create_url, connect_to_endpoint,
-    append_tweet_to_csv, append_user_to_csv, append_place_to_csv
+    append_tweet_to_csv, append_user_to_csv, append_place_to_csv, append_news_to_csv
 )
 
 
@@ -20,30 +20,31 @@ def get_args():
     )
 
     parser.add_argument(
-        'i',
+        '-i',
         '--input_data',
         type=str,
         required=True,
         help='Path to the input csv data.'
     )
     parser.add_argument(
-        't',
+        '-t',
         '--data_type',
         type=str,
         required=True,
-        choices=['news', 'replies'],
+        # choices=['news', 'replies'],
         help='Type of data. Should be news or replies.'
     )
     parser.add_argument(
-        'sd',
+        '-sd',
         '--start_date',
         type=str,
         required=True,
-        const='2020-01-01',
+        # nargs='?',
+        # const='2020-01-01',
         help='Start date for collection.'
     )
     parser.add_argument(
-        'ed',
+        '-ed',
         '--end_date',
         type=str,
         required=True,
@@ -74,9 +75,10 @@ def main():
     logger.info(fr'Start collecting {COLLECT_DATA_TYPE} tweets.')
 
     # read relevant datasets
-    news_tweets = pd.read_csv(os.path.join, INPUT_DATA_FILE, f'news_tweets.csv')
-    news_accounts = pd.read_csv(os.path.join, INPUT_DATA_FILE, f'covid_users.csv')
-    tweets_replies = pd.read_csv(os.path.join, INPUT_DATA_FILE, f'tweets_replies.csv')
+    news_tweets = pd.read_csv(os.path.join(INPUT_DATA_FILE, f'news_tweets.csv'))
+    news_accounts = pd.read_csv(os.path.join(INPUT_DATA_FILE, f'covid_users.csv'))
+    conversations = pd.read_csv(os.path.join(INPUT_DATA_FILE, f'tweets_replies.csv'), 
+                                usecols=['conversation_id']).conversation_id.unique()
     logger.info('Finished reading relevant data.')
 
     # keep only the relevant news accounts
@@ -90,7 +92,7 @@ def main():
             news_tweets[
                 (news_tweets.author_id.isin(
                     news_accounts[news_accounts.username.isin(CONSTS.priority_news)].author_id.values)) &
-                ~(news_tweets.conversation_id.isin(tweets_replies.conversation_id.unique())) &
+                ~(news_tweets.conversation_id.isin(conversations)) &
                 (news_tweets.reply_count > 0)
                 ].conversation_id)
         random.shuffle(conversations)
@@ -99,9 +101,10 @@ def main():
         pool = news_accounts.username.unique()
 
     # loop variables
-    total_pool_tweets = total_tweets = n_requests = n_instances = err_count = result_count = count = 0
+    total_pool_tweets = n_requests = n_instances = err_count = result_count = count = 0
     start_time = time.time()
     valid = False
+    next_token = None
 
     # loop through pool
     for instance in pool:
@@ -133,10 +136,10 @@ def main():
                     n_requests += 1
                     valid = True
                     err_count = 0
-                except:
+                except Exception as e:
                     err_count += 1
                     time.sleep(2 ^ err_count)
-                    logger.info(fr"-------------------------------------- Request error #{err_count}")
+                    logger.info(fr"---- Request error #{err_count}: {e}")
             valid = False
 
             # check if it is the final request for this instance
@@ -150,12 +153,12 @@ def main():
                     if 'places' in json_response['includes'].keys():
                         append_place_to_csv(json_response, os.path.join(INPUT_DATA_FILE, f'places_replies.csv'))
                 if COLLECT_DATA_TYPE == 'news':
-                    append_tweet_to_csv(json_response, os.path.join(INPUT_DATA_FILE, f'news_tweets.csv'))
+                    append_news_to_csv(json_response, os.path.join(INPUT_DATA_FILE, f'news_tweets.csv'))
                 count += result_count
                 total_instance_tweets += result_count
                 logger.info(
                     fr'Just collect {result_count} tweets | Instance tweets: {total_instance_tweets}' +
-                    fr'| Pool tweets: {total_tweets} | Request #{n_requests} | Time cap: {int(time.time() - start_time)}.'
+                    fr'| Pool tweets: {total_pool_tweets} | Request #{n_requests} | Time cap: {int(time.time() - start_time)}.'
                 )
                 time.sleep(1)
 
@@ -178,7 +181,7 @@ def main():
 if __name__ == '__main__':
 
     # get parent dir
-    project_dir = Path(__file__).resolve().parents[2]
+    project_dir = Path(__file__).resolve().parents[1]
 
     # logging settings
     logsdir = os.path.join(project_dir,'src/logs/')
