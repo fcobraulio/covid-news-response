@@ -1,6 +1,5 @@
 import os
 import time
-import random
 import datetime
 import argparse
 import logging
@@ -31,7 +30,7 @@ def get_args():
         '--data_type',
         type=str,
         required=True,
-        # choices=['news', 'replies'],
+        choices=['news', 'replies', 'quotes'],
         help='Type of data. Should be news or replies.'
     )
     parser.add_argument(
@@ -39,8 +38,8 @@ def get_args():
         '--start_date',
         type=str,
         required=True,
-        # nargs='?',
-        # const='2020-01-01',
+        nargs='?',
+        const='2020-01-01',
         help='Start date for collection.'
     )
     parser.add_argument(
@@ -69,6 +68,7 @@ def main():
     HEADERS = create_headers(BEARER_TOKEN)
     MAX_COUNT = 10000000
     MAX_RESULTS = 500
+    NEWS_PER_QUERY = 22
 
     #
     logger = logging.getLogger(__name__)
@@ -76,29 +76,13 @@ def main():
 
     # read relevant datasets
     news_tweets = pd.read_csv(os.path.join(INPUT_DATA_FILE, f'news_tweets.csv'))
-    news_accounts = pd.read_csv(os.path.join(INPUT_DATA_FILE, f'covid_users.csv'))
-    conversations = pd.read_csv(os.path.join(INPUT_DATA_FILE, f'tweets_replies.csv'), 
-                                usecols=['conversation_id']).conversation_id.unique()
+    news_accounts = pd.read_csv(os.path.join(INPUT_DATA_FILE, f'news_accounts.csv'))
+    conversations = pd.read_csv(
+        os.path.join(INPUT_DATA_FILE, f'tweets_replies.csv'), usecols=['conversation_id', 'is_quote']
+    )
+    replies_conversations = list(conversations[conversations.is_quote==False].conversation_id.unique())
+    quotes_conversations = list(conversations[conversations.is_quote==True].conversation_id.unique())
     logger.info('Finished reading relevant data.')
-
-    # keep only the relevant news accounts
-    tmp = news_tweets.author_id.value_counts().rename('amount').rename_axis('author_id').reset_index()
-    news_accounts = news_accounts[news_accounts.author_id.isin(tmp.author_id)].drop_duplicates('author_id').merge(
-        tmp).sort_values('amount', ascending=False)
-
-    # get selected conversations
-    if COLLECT_DATA_TYPE == 'replies':
-        conversations = list(
-            news_tweets[
-                (news_tweets.author_id.isin(
-                    news_accounts[news_accounts.username.isin(CONSTS.priority_news)].author_id.values)) &
-                ~(news_tweets.conversation_id.isin(conversations)) &
-                (news_tweets.reply_count > 0)
-                ].conversation_id)
-        random.shuffle(conversations)
-        pool = list(split(conversations, int(len(conversations) / 24)))
-    elif COLLECT_DATA_TYPE == 'news':
-        pool = news_accounts.username.unique()
 
     # loop variables
     total_pool_tweets = n_requests = n_instances = err_count = result_count = count = 0
@@ -106,76 +90,125 @@ def main():
     valid = False
     next_token = None
 
+    # get accounts list
+    accounts_list = list(news_accounts.username.unique()) if COLLECT_DATA_TYPE == 'news' else CONSTS.priority_news
+
     # loop through pool
-    for instance in pool:
+    for account in accounts_list:
 
-        # select search query
+        # get account id
+        news_account_id = news_accounts[news_accounts.username == account].author_id.values[0]
+        total_account_tweets = 0
+        logger.info(fr'Started collection of account {account}.')
+
+        # get selected conversations
         if COLLECT_DATA_TYPE == 'replies':
-            search = "conversation_id:" + " OR conversation_id:".join(
-                [str(s) for s in instance]) + " lang:en is:reply -is:retweet"
+            conversations = list(news_tweets[
+                    (news_tweets.author_id == news_accounts[news_accounts.username == account].author_id.values[0]) &
+                    ~(news_tweets.conversation_id.isin(replies_conversations)) &
+                    (news_tweets.reply_count > 0)
+                ].conversation_id)
+            if len(conversations) == 0:
+                logger.info(fr'Account {account} didnt had any reply to collect.')
+                continue
+            elif len(conversations) < NEWS_PER_QUERY:
+                pool = [conversations]
+            else:
+                pool = list(split(conversations, int(len(conversations) / NEWS_PER_QUERY)))
+        elif COLLECT_DATA_TYPE == 'quotes':
+            tweets = list(news_tweets[
+                    (news_tweets.author_id == news_accounts[news_accounts.username == account].author_id.values[0]) &
+                    ~(news_tweets.conversation_id.isin(quotes_conversations)) &
+                    (news_tweets.quote_count > 0)
+                ].conversation_id)
+            if len(tweets) == 0:
+                logger.info(fr'Account {account} didnt had any quote to collect.')
+                continue
+            elif len(tweets) < NEWS_PER_QUERY:
+                pool = [tweets]
+            else:
+                pool = list(split(tweets, int(len(tweets) / NEWS_PER_QUERY)))
         elif COLLECT_DATA_TYPE == 'news':
-            search = f"context:123.1220701888179359745 from:{instance} lang:en -is:retweet -is:reply"
+            pool = [news_accounts[news_accounts.username == account].author_id.values[0]]
 
-        #
-        total_instance_tweets = 0
-        flag = True
+        for instance in pool:
+            
+            # select search query
+            if COLLECT_DATA_TYPE == 'replies':
+                search = "conversation_id:" + " OR conversation_id:".join([str(s) for s in instance]) + \
+                         fr" lang:en is:reply -is:retweet to:{account}"
+            elif COLLECT_DATA_TYPE == 'quotes':
+                search = "url:" + " OR url:".join([str(s) for s in instance]) + \
+                         fr" lang:en -is:reply -is:retweet is:quote"
+            elif COLLECT_DATA_TYPE == 'news':
+                search = f"context:123.1220701888179359745 from:{instance} lang:en -is:retweet -is:reply"
+            
+            #
+            total_instance_tweets = 0
+            flag = True
 
-        # collect tweets within an instance
-        while flag:
+            # collect tweets within an instance
+            while flag:
 
-            # check if max_count reached
-            if count >= MAX_COUNT:
-                break
+                # check if max_count reached
+                if count >= MAX_COUNT:
+                    break
 
-            # check for API response error
-            while not valid:
-                try:
-                    url = create_url(search, START_DATE, END_DATE, MAX_RESULTS)
-                    json_response = connect_to_endpoint(url[0], HEADERS, url[1], next_token)
-                    result_count = json_response['meta']['result_count']
-                    n_requests += 1
-                    valid = True
-                    err_count = 0
-                except Exception as e:
-                    err_count += 1
-                    time.sleep(2 ^ err_count)
-                    logger.info(fr"---- Request error #{err_count}: {e}")
-            valid = False
+                # check for API response error
+                while not valid:
+                    try:
+                        url = create_url(search, START_DATE, END_DATE, MAX_RESULTS)
+                        json_response = connect_to_endpoint(url[0], HEADERS, url[1], next_token)
+                        result_count = json_response['meta']['result_count']
+                        n_requests += 1
+                        valid = True
+                        err_count = 0
+                        if result_count == 0:
+                            logger.info(fr"Finished request with zero results.")
+                            time.sleep(1)
+                    except Exception as e:
+                        err_count += 1
+                        time.sleep(2**err_count)
+                        logger.info(fr"---- Request error #{err_count}: {e}")
+                valid = False
 
-            # check if it is the final request for this instance
-            next_token = json_response['meta']['next_token'] if 'next_token' in json_response['meta'] else None
+                # check if it is the final request for this instance
+                next_token = json_response['meta']['next_token'] if 'next_token' in json_response['meta'] else None
 
-            # collect tweets
-            if result_count is not None and result_count > 0:
-                if COLLECT_DATA_TYPE == 'replies':
-                    append_tweet_to_csv(json_response, os.path.join(INPUT_DATA_FILE, f'tweets_replies.csv'))
-                    append_user_to_csv(json_response, os.path.join(INPUT_DATA_FILE, f'users_replies.csv'))
-                    if 'places' in json_response['includes'].keys():
-                        append_place_to_csv(json_response, os.path.join(INPUT_DATA_FILE, f'places_replies.csv'))
-                if COLLECT_DATA_TYPE == 'news':
-                    append_news_to_csv(json_response, os.path.join(INPUT_DATA_FILE, f'news_tweets.csv'))
-                count += result_count
-                total_instance_tweets += result_count
-                logger.info(
-                    fr'Just collect {result_count} tweets | Instance tweets: {total_instance_tweets}' +
-                    fr'| Pool tweets: {total_pool_tweets} | Request #{n_requests} | Time cap: {int(time.time() - start_time)}.'
-                )
-                time.sleep(1)
+                # collect tweets
+                if result_count is not None and result_count > 0:
+                    if (COLLECT_DATA_TYPE == 'replies') or (COLLECT_DATA_TYPE == 'quotes'):
+                        append_tweet_to_csv(json_response, news_account_id, os.path.join(INPUT_DATA_FILE, f'tweets_replies.csv'))
+                        append_user_to_csv(json_response, os.path.join(INPUT_DATA_FILE, f'users_replies.csv'))
+                        if 'places' in json_response['includes'].keys():
+                            append_place_to_csv(json_response, os.path.join(INPUT_DATA_FILE, f'places_replies.csv'))
+                    elif COLLECT_DATA_TYPE == 'news':
+                        append_news_to_csv(json_response, os.path.join(INPUT_DATA_FILE, f'news_tweets.csv'))
+                    count += result_count
+                    total_instance_tweets += result_count
+                    logger.info(
+                        fr'Just collect {result_count} tweets | Instance tweets: {total_instance_tweets}' +
+                        fr'| Pool tweets: {total_pool_tweets} | Request #{n_requests} | Time cap: {int(time.time() - start_time)}.'
+                    )
+                    time.sleep(1)
 
-            # if it is the last request, set flags
-            if next_token is None:
-                flag = False
+                # if it is the last request, set flags
+                if next_token is None:
+                    flag = False
 
-            # control API time caps
-            t = time.time() - start_time
-            if n_requests == 300:
-                if t < 900:
-                    time.sleep(900 - t)
-                start_time = time.time()
-                n_requests = 0
+                # control API time caps
+                t = time.time() - start_time
+                if n_requests == 300:
+                    if t < 900:
+                        time.sleep(900 - t)
+                    start_time = time.time()
+                    n_requests = 0
 
-        n_instances += 1
-        total_pool_tweets += total_instance_tweets
+            n_instances += 1
+            total_pool_tweets += total_instance_tweets
+        total_account_tweets += total_pool_tweets
+
+    logger.info(fr'Finished collecting tweets from {account}. Total of: {total_account_tweets}.')
 
 
 if __name__ == '__main__':

@@ -107,7 +107,7 @@ def append_news_to_csv(json_response, fileName):
     csvFile.close()
 
 
-def append_tweet_to_csv(json_response, fileName):
+def append_tweet_to_csv(json_response, news_account_id, fileName):
     # A counter variable
     counter = 0
 
@@ -128,15 +128,16 @@ def append_tweet_to_csv(json_response, fileName):
         created_at = dateutil.parser.parse(tweet['created_at'])
 
         # 3. Geolocation
-        if ('geo' in tweet):
+        if ('geo' in tweet):   
             geo = tweet['geo']['place_id']
         else:
             geo = " "
 
         # 4. Tweet and Conversation ID
+        is_quote = tweet['referenced_tweets'][0]['type'] == 'quoted' if 'referenced_tweets' in tweet.keys() else False
         tweet_id = tweet['id']
-        conversation_id = tweet['conversation_id']
-        in_reply_to_user_id = tweet['in_reply_to_user_id']
+        conversation_id = tweet['conversation_id'] if not is_quote else tweet['referenced_tweets'][0]['id']
+        in_reply_to_user_id = tweet['in_reply_to_user_id'] if 'in_reply_to_user_id' in tweet.keys() else news_account_id        
 
         # 5. Language
         lang = tweet['lang']
@@ -154,8 +155,7 @@ def append_tweet_to_csv(json_response, fileName):
         text = tweet['text']
 
         # Assemble all data in a list
-        res = [tweet_id, conversation_id, author_id, in_reply_to_user_id, created_at, geo, lang, like_count,
-               quote_count, reply_count, retweet_count, source, text]
+        res = [tweet_id, conversation_id, author_id, in_reply_to_user_id, is_quote, created_at, geo, lang, like_count, quote_count, reply_count, retweet_count, source, text]
 
         # Append the result to the CSV file
         csvWriter.writerow(res)

@@ -13,6 +13,5 @@ datetime
 dateutil
 unicodedata
 time
-random
 argparse
 matplotlib
