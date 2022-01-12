@@ -64,7 +64,7 @@ def main():
     INPUT_DATA_FILE = args.input_data
     COLLECT_DATA_TYPE = args.data_type
     START_DATE = args.start_date + f'T00:00:00.000Z'
-    END_DATE = args.start_date + f'T23:59:59.000Z'
+    END_DATE = args.end_date + f'T23:59:59.000Z'
     BEARER_TOKEN = auth()
     HEADERS = create_headers(BEARER_TOKEN)
     MAX_COUNT = 10000000
