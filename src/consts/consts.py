@@ -11,7 +11,7 @@ class Constants:
         'News24', 'eNCA', 'SABCNews', # South Africa
         'MobilePunch', 'vanguardngrnews', 'PulseNigeria247', # Nigeria
         'citizentvkenya', 'ntvkenya', 'NationAfrica', # Kenya
-        'ntvuganda', 'nbstv', 'DailyMonitor', # Uganda
+        'ntvuganda', 'nbstv', 'DailyMonitor', # Uganda (not in reuters report)
         '9NewsAUS', 'abcnews', 'newscomauHQ', # Australia
-        'NewshubNZ', 'nzherald' # New Zealand
+        'NewshubNZ', 'nzherald' # New Zealand (not in reuters report)
     ]

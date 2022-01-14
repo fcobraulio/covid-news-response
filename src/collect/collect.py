@@ -107,7 +107,7 @@ def append_news_to_csv(json_response, fileName):
     csvFile.close()
 
 
-def append_tweet_to_csv(json_response, news_account_id, fileName):
+def append_tweet_to_csv(json_response, news_account_id, collect_type, fileName):
     # A counter variable
     counter = 0
 
@@ -134,9 +134,9 @@ def append_tweet_to_csv(json_response, news_account_id, fileName):
             geo = " "
 
         # 4. Tweet and Conversation ID
-        is_quote = tweet['referenced_tweets'][0]['type'] == 'quoted' if 'referenced_tweets' in tweet.keys() else False
+        is_quote = (collect_type == 'quotes') and ('referenced_tweets' in tweet.keys())
         tweet_id = tweet['id']
-        conversation_id = tweet['conversation_id'] if not is_quote else tweet['referenced_tweets'][0]['id']
+        conversation_id = tweet['referenced_tweets'][0]['id'] if is_quote else tweet['conversation_id']
         in_reply_to_user_id = tweet['in_reply_to_user_id'] if 'in_reply_to_user_id' in tweet.keys() else news_account_id        
 
         # 5. Language

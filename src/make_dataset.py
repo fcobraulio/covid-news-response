@@ -4,6 +4,7 @@ import datetime
 import argparse
 import logging
 import pandas as pd
+import numpy as np
 from pathlib import Path
 from dotenv import load_dotenv, find_dotenv
 from consts.consts import Constants as CONSTS
@@ -68,7 +69,7 @@ def main():
     HEADERS = create_headers(BEARER_TOKEN)
     MAX_COUNT = 10000000
     MAX_RESULTS = 500
-    NEWS_PER_QUERY = 22
+    NEWS_PER_QUERY = 24
 
     #
     logger = logging.getLogger(__name__)
@@ -114,7 +115,7 @@ def main():
             elif len(conversations) < NEWS_PER_QUERY:
                 pool = [conversations]
             else:
-                pool = list(split(conversations, int(len(conversations) / NEWS_PER_QUERY)))
+                pool = list(split(conversations, int(np.ceil(len(conversations) / NEWS_PER_QUERY))))
         elif COLLECT_DATA_TYPE == 'quotes':
             tweets = list(news_tweets[
                     (news_tweets.author_id == news_accounts[news_accounts.username == account].author_id.values[0]) &
@@ -135,10 +136,10 @@ def main():
             
             # select search query
             if COLLECT_DATA_TYPE == 'replies':
-                search = "conversation_id:" + " OR conversation_id:".join([str(s) for s in instance]) + \
+                search = "(conversation_id:" + " OR conversation_id:".join([str(s) for s in instance]) + ')' + \
                          fr" lang:en is:reply -is:retweet to:{account}"
             elif COLLECT_DATA_TYPE == 'quotes':
-                search = "url:" + " OR url:".join([str(s) for s in instance]) + \
+                search = "(url:" + " OR url:".join([str(s) for s in instance]) + ')' + \
                          fr" lang:en -is:reply -is:retweet is:quote"
             elif COLLECT_DATA_TYPE == 'news':
                 search = f"context:123.1220701888179359745 from:{instance} lang:en -is:retweet -is:reply"
@@ -164,7 +165,6 @@ def main():
                         valid = True
                         err_count = 0
                         if result_count == 0:
-                            logger.info(fr"Finished request with zero results.")
                             time.sleep(1)
                     except Exception as e:
                         err_count += 1
@@ -178,7 +178,7 @@ def main():
                 # collect tweets
                 if result_count is not None and result_count > 0:
                     if (COLLECT_DATA_TYPE == 'replies') or (COLLECT_DATA_TYPE == 'quotes'):
-                        append_tweet_to_csv(json_response, news_account_id, os.path.join(INPUT_DATA_FILE, f'tweets_replies.csv'))
+                        append_tweet_to_csv(json_response, news_account_id, COLLECT_DATA_TYPE, os.path.join(INPUT_DATA_FILE, f'tweets_replies.csv'))
                         append_user_to_csv(json_response, os.path.join(INPUT_DATA_FILE, f'users_replies.csv'))
                         if 'places' in json_response['includes'].keys():
                             append_place_to_csv(json_response, os.path.join(INPUT_DATA_FILE, f'places_replies.csv'))
@@ -208,7 +208,7 @@ def main():
             total_pool_tweets += total_instance_tweets
         total_account_tweets += total_pool_tweets
 
-    logger.info(fr'Finished collecting tweets from {account}. Total of: {total_account_tweets}.')
+        logger.info(fr'Finished collecting tweets from {account}. Total of: {total_account_tweets}.')
 
 
 if __name__ == '__main__':
