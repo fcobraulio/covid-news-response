@@ -35,10 +35,17 @@ def get_args():
         help='Type of data. Should be news or replies.'
     )
     parser.add_argument(
+        '-p',
+        '--priority_news',
+        action='append',
+        nargs='?',
+        const=CONSTS.priority_news,
+        help='News outlets to be collected.'
+    )
+    parser.add_argument(
         '-sd',
         '--start_date',
         type=str,
-        required=True,
         nargs='?',
         const='2020-01-01',
         help='Start date for collection.'
@@ -86,20 +93,20 @@ def main():
     logger.info('Finished reading relevant data.')
 
     # loop variables
-    total_pool_tweets = n_requests = n_instances = err_count = result_count = count = 0
+    total_tweets = n_requests = n_instances = err_count = result_count = count = 0
     start_time = time.time()
     valid = False
     next_token = None
 
     # get accounts list
-    accounts_list = list(news_accounts.username.unique()) if COLLECT_DATA_TYPE == 'news' else CONSTS.priority_news
+    accounts_list = CONSTS.priority_news if args.priority_news is None else args.priority_news
 
     # loop through pool
     for account in accounts_list:
 
         # get account id
         news_account_id = news_accounts[news_accounts.username == account].author_id.values[0]
-        total_account_tweets = 0
+        total_pool_tweets = 0
         logger.info(fr'Started collection of account {account}.')
 
         # get selected conversations
@@ -130,7 +137,11 @@ def main():
             else:
                 pool = list(split(tweets, int(len(tweets) / NEWS_PER_QUERY)))
         elif COLLECT_DATA_TYPE == 'news':
-            pool = [news_accounts[news_accounts.username == account].author_id.values[0]]
+            if news_account_id in news_tweets.author_id.unique():
+                logger.info(fr'News from {account} have already been collected.')
+                continue
+            else:
+                pool = [account]
 
         for instance in pool:
             
@@ -142,7 +153,7 @@ def main():
                 search = "(url:" + " OR url:".join([str(s) for s in instance]) + ')' + \
                          fr" lang:en -is:reply -is:retweet is:quote"
             elif COLLECT_DATA_TYPE == 'news':
-                search = f"context:123.1220701888179359745 from:{instance} lang:en -is:retweet -is:reply"
+                search = f"(context:123.1220701888179359745) from:{instance} lang:en -is:retweet -is:reply"
             
             #
             total_instance_tweets = 0
@@ -206,9 +217,9 @@ def main():
 
             n_instances += 1
             total_pool_tweets += total_instance_tweets
-        total_account_tweets += total_pool_tweets
+        total_tweets += total_pool_tweets
 
-        logger.info(fr'Finished collecting tweets from {account}. Total of: {total_account_tweets}.')
+        logger.info(fr'Finished collecting {total_pool_tweets} tweets from {account}. Total of: {total_tweets}.')
 
 
 if __name__ == '__main__':
