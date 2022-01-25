@@ -129,7 +129,10 @@ def append_tweet_to_csv(json_response, news_account_id, collect_type, fileName):
 
         # 3. Geolocation
         if ('geo' in tweet):   
-            geo = tweet['geo']['place_id']
+            try:
+                geo = tweet['geo']['place_id']
+            except:
+                geo = " "
         else:
             geo = " "
 

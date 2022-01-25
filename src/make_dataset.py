@@ -1,3 +1,6 @@
+# example of usage:
+# 
+
 import os
 import time
 import datetime
@@ -76,7 +79,7 @@ def main():
     HEADERS = create_headers(BEARER_TOKEN)
     MAX_COUNT = 10000000
     MAX_RESULTS = 500
-    NEWS_PER_QUERY = 24
+    NEWS_PER_QUERY = 25 if COLLECT_DATA_TYPE == 'replies' else 34
 
     #
     logger = logging.getLogger(__name__)
@@ -135,7 +138,7 @@ def main():
             elif len(tweets) < NEWS_PER_QUERY:
                 pool = [tweets]
             else:
-                pool = list(split(tweets, int(len(tweets) / NEWS_PER_QUERY)))
+                pool = list(split(tweets, int(np.ceil(len(tweets) / NEWS_PER_QUERY))))
         elif COLLECT_DATA_TYPE == 'news':
             if news_account_id in news_tweets.author_id.unique():
                 logger.info(fr'News from {account} have already been collected.')
